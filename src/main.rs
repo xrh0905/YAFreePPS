@@ -1,3 +1,4 @@
+mod audit;
 mod device;
 mod policy;
 mod reactor;

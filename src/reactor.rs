@@ -1,6 +1,7 @@
 //! A single writer and a blocking event loop: netlink, directory inotify, signalfd.
 //! Only a pending attach classification arms a one-shot timeout; no periodic polling.
 use crate::{
+    audit::{Report, unix_ms},
     device::{Device, read},
     policy::{Action, Policy},
 };
@@ -216,6 +217,8 @@ pub fn run(mut d: Device) -> Result<()> {
     if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
         bail!("another YAFreePPS daemon is running");
     }
+    // Invalidate a crashed predecessor before advertising this daemon as ready.
+    let _ = fs::remove_file(d.module.join("daemon.instance"));
     let signal = signals()?;
     let control = controls(&d)?;
     let events = netlink().context("cannot monitor kernel uevents; refusing polling fallback")?;
@@ -231,33 +234,48 @@ pub fn run(mut d: Device) -> Result<()> {
     );
     let cleanup = d.restore_idle();
     let _ = fs::remove_file(d.module.join("daemon.pid"));
+    let _ = fs::remove_file(d.module.join("daemon.instance"));
     result.and(cleanup)
 }
 fn event_loop(d: &mut Device, signal: RawFd, controls: RawFd, events: RawFd) -> Result<()> {
     let mut p = Policy::with_timing(d.settle_ms, d.stable_ms);
     let start = Instant::now();
+    let wall_start = unix_ms();
+    let instance = format!("{}-{wall_start}", std::process::id());
+    fs::write(d.module.join("daemon.instance"), &instance)?;
+    let mut report = Report::new(instance);
+    let mut published = None;
     let mut was_enabled = false;
     let mut first = true;
     log::info!("started; no App, broadcasts, or MTK writes");
+    let mut refresh = true;
     loop {
-        let now = start.elapsed().as_millis() as u64;
-        let s = d.snapshot();
-        if (first || was_enabled) && !s.enabled {
-            d.restore_idle()?;
-        }
-        first = false;
-        was_enabled = s.enabled;
-        if p.update(now, &s) == Some(Action::Unlock) {
-            match d.unlock() {
-                Ok(true) => (),
-                Ok(false) => {
-                    p.unlock_failed();
-                }
-                Err(e) => {
-                    p.unlock_failed();
-                    log::error!("{e:#}");
+        if refresh {
+            let now = start.elapsed().as_millis() as u64;
+            let s = d.snapshot();
+            if (first || was_enabled) && !s.enabled {
+                d.restore_idle()?;
+            }
+            first = false;
+            was_enabled = s.enabled;
+            let action = p.update(now, &s);
+            report.observe(&p, &s, wall_start);
+            if action == Some(Action::Unlock) {
+                let outcome = d.unlock();
+                report.record(&outcome);
+                match outcome {
+                    Ok(true) => (),
+                    Ok(false) => {
+                        p.unlock_failed();
+                    }
+                    Err(e) => {
+                        p.unlock_failed();
+                        log::error!("{e:#}");
+                    }
                 }
             }
+            report.observe(&p, &d.snapshot(), wall_start);
+            report.publish(d, &mut published)?;
         }
         let timeout = p.deadline().map_or(-1, |t| {
             t.saturating_sub(start.elapsed().as_millis() as u64)
@@ -287,7 +305,9 @@ fn event_loop(d: &mut Device, signal: RawFd, controls: RawFd, events: RawFd) -> 
             log::info!("stopping");
             return Ok(());
         }
+        refresh = count == 0;
         if fds[1].revents != 0 && drain_controls(controls)? {
+            refresh = true;
             // Disable is authoritative even when netlink arrives in the same batch.
             let config = read(d.module.join("config"));
             match Device::new(d.module.clone(), d.sys.clone()) {
@@ -308,7 +328,7 @@ fn event_loop(d: &mut Device, signal: RawFd, controls: RawFd, events: RawFd) -> 
             }
         }
         if fds[2].revents != 0 {
-            drain_netlink(events, &mut p)?;
+            refresh |= drain_netlink(events, &mut p)?;
         }
     }
 }
@@ -421,5 +441,23 @@ mod tests {
         h.event(b"SUBSYSTEM=power_supply\0");
         thread::sleep(Duration::from_millis(2700));
         assert_eq!(read(h.d.node("qcom-battery/pd_verifed")), "0");
+    }
+    #[test]
+    fn failed_write_diagnostics_do_not_retry_on_their_own_inotify_events() {
+        let h = Harness::new("error");
+        let path = h.d.node("qcom-battery/pd_verifed");
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        h.write("xm_power/typec/strategy_pd_auth/adapter_svid", "0000");
+        h.event(b"SUBSYSTEM=power_supply\0");
+        thread::sleep(Duration::from_millis(2800));
+        let r: Report = serde_json::from_str(&read(h.d.module.join("session.json"))).unwrap();
+        assert_eq!(r.write_attempts, 1);
+        assert_eq!(r.writes_succeeded, 0);
+        assert_eq!(r.last_write_result, "failed");
+        assert!(r.last_write_error.is_some());
+        thread::sleep(Duration::from_millis(100));
+        let next: Report = serde_json::from_str(&read(h.d.module.join("session.json"))).unwrap();
+        assert_eq!(next.write_attempts, 1);
     }
 }

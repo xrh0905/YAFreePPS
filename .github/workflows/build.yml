@@ -29,6 +29,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 2
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
@@ -55,7 +56,11 @@ jobs:
             [ -n "$MANUAL_TAG" ] || { echo 'release_tag is required'; exit 1; }
             tag="$MANUAL_TAG"
           fi
-          python3 scripts/release_metadata.py --tag "$tag"
+          if [ "$EVENT_NAME" = push ] && [ "$REF_TYPE" = branch ] && [ "$REF_NAME" = main ]; then
+            python3 scripts/release_metadata.py --release-on-version-change
+          else
+            python3 scripts/release_metadata.py --tag "$tag"
+          fi
       - name: Install pinned Android NDK r27d
         run: |
           archive="$RUNNER_TEMP/android-ndk-r27d-linux.zip"
@@ -90,6 +95,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           name: YAFreePPS-arm64
@@ -105,19 +114,4 @@ jobs:
           PRERELEASE: ${{ needs.android.outputs.prerelease }}
           TARGET_SHA: ${{ github.sha }}
         run: |
-          args=(--target "$TARGET_SHA" --title "YAFreePPS $RELEASE_TAG" --notes-file output/RELEASE_NOTES.md)
-          if [ "$PRERELEASE" = true ]; then
-            args+=(--prerelease --latest=false)
-          fi
-          # An existing tag must point at exactly the tested commit.
-          error_file=$(mktemp)
-          if tagged_sha=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha 2>"$error_file"); then
-            [ "$tagged_sha" = "$TARGET_SHA" ] || { echo 'Tag points at another commit'; exit 1; }
-          elif ! grep -q 'HTTP 404' "$error_file"; then
-            cat "$error_file" >&2
-            exit 1
-          fi
-          rm -f "$error_file"
-          # Existing releases are never overwritten by a rerun.
-          gh release create "$RELEASE_TAG" "${args[@]}" output/YAFreePPS-*.zip output/SHA256SUMS
-
+          python3 scripts/publish_release.py

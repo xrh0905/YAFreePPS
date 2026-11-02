@@ -1,5 +1,5 @@
 //! Pure policy: no sysfs writes or subprocesses. Time is monotonic milliseconds.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Snapshot {
     pub status: String,
     pub enabled: bool,
@@ -23,11 +23,13 @@ pub struct Policy {
     pub settle_ms: u64,
     pub stable_ms: u64,
     pub(crate) active: bool,
+    pub(crate) session_id: u64,
     enabled: bool,
     started: u64,
     candidate: Option<u64>,
     xiaomi: bool,
     unlocked: bool,
+    public_ready: bool,
     due: Option<u64>,
 }
 impl Default for Policy {
@@ -36,11 +38,13 @@ impl Default for Policy {
             settle_ms: 2500,
             stable_ms: 1500,
             active: false,
+            session_id: 0,
             enabled: false,
             started: 0,
             candidate: None,
             xiaomi: false,
             unlocked: false,
+            public_ready: false,
             due: None,
         }
     }
@@ -58,6 +62,7 @@ impl Policy {
         self.candidate = None;
         self.xiaomi = false;
         self.unlocked = false;
+        self.public_ready = false;
         self.due = None;
     }
     pub fn reconfigure(&mut self, now: u64, settle: u64, stable: u64) {
@@ -65,6 +70,7 @@ impl Policy {
         self.stable_ms = stable;
         self.started = now;
         self.candidate = None;
+        self.public_ready = false;
         self.due = None;
     }
     pub fn invalidate(&mut self) {
@@ -74,6 +80,50 @@ impl Policy {
     /// Retry only on a subsequent event, never in a busy loop.
     pub fn unlock_failed(&mut self) {
         self.unlocked = false;
+    }
+    pub fn classification(&self, s: &Snapshot) -> &'static str {
+        if !self.active {
+            "disconnected"
+        } else if self.xiaomi {
+            "xiaomi"
+        } else if s.svid == "0000" && s.real_type == "PD_PPS" {
+            if self.public_ready {
+                "public_pps"
+            } else {
+                "public_candidate"
+            }
+        } else {
+            "unknown"
+        }
+    }
+    pub fn reason(&self, s: &Snapshot) -> &'static str {
+        if !self.active {
+            "disconnected"
+        } else if !s.enabled {
+            "paused"
+        } else if s.status != "Charging" {
+            "unknown_status"
+        } else if self.xiaomi {
+            "xiaomi_kernel"
+        } else if s.svid.is_empty() {
+            "waiting_svid"
+        } else if s.svid != "0000" {
+            "unsupported_svid"
+        } else if s.real_type != "PD_PPS" {
+            "not_pps"
+        } else if self.due.is_some() {
+            "settling"
+        } else if s.capacity.is_none() {
+            "capacity_unreadable"
+        } else if s.capacity.is_some_and(|v| v >= 100) || s.stopped || s.qct == Some(0) {
+            "full_or_trickle"
+        } else if s.verified {
+            "verified"
+        } else if self.unlocked {
+            "write_completed"
+        } else {
+            "eligible"
+        }
     }
     pub fn deadline(&self) -> Option<u64> {
         self.due
@@ -88,6 +138,7 @@ impl Policy {
         }
         if s.status == "Charging" && !self.active {
             self.reset(now);
+            self.session_id += 1;
             self.active = true;
         }
         if s.enabled && !self.enabled {
@@ -105,6 +156,7 @@ impl Policy {
         }
         if s.svid != "0000" || s.real_type != "PD_PPS" {
             self.candidate = None;
+            self.public_ready = false;
             return None; // Empty/unknown VID is never a public adapter.
         }
         let since = *self.candidate.get_or_insert(now);
@@ -113,6 +165,7 @@ impl Policy {
             self.due = Some(ready);
             return None;
         }
+        self.public_ready = true;
         // Full/trickle charge does not need an unlock. No UI is forged anywhere.
         if s.capacity.is_none_or(|v| v >= 100) || s.stopped || s.qct == Some(0) {
             return None;

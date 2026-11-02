@@ -27,6 +27,9 @@ YAFreePPS 是基于 [Seyud/FreePPS](https://github.com/Seyud/FreePPS) 的独立 
 - **Action**：管理器中的模块操作按钮执行启用/暂停切换。无需另装 App。
 - **WebUI**：在支持 KernelSU WebUI `ksu.exec` 桥接的管理器内打开，查看状态、切换启停、设置握手等待时间。前端完全本地，无 CDN 或网络请求。
 - Magisk 可使用 Action；Magisk 原生管理器不提供本项目所需的 KernelSU WebUI 桥接。兼容第三方 WebUI 宿主的行为仍需实机验证。
+- **本轮会话**：展示服务的识别结论、决策/跳过原因、写入 1 的实际尝试和成功次数、最近执行结果、时间与错误。`pd_verifed=1` 是当前节点值，不是模块写入证明；小米内核自行验证也会置 1。
+- 会话记录由服务事件驱动、原子写入 `session.json`，只在内容变化时更新。暂停/恢复保留本轮次数，拔出后下一次插入重新计数；服务重启另起记录，不猜测上一个进程是否写过。
+- 服务停止、记录缺失或属于旧进程时，WebUI 显示“未知/等待上报”，不会显示成“本轮没写”。节点快照与事件记录不同步时会明确提示稍后刷新。记录只统计解锁写 1，不把未插电时显式还原 0 混入本轮解锁次数。
 - WebUI 只在打开、回到前台、点击刷新或控制操作后读取状态，不后台轮询。页面中的 APDO 是能力值，不是实时功率。
 - **不会发送任何快充、SOC、动画或通知广播**。公版头可能继续显示系统原生的 `qct=1` 和普通快充 UI，这是预期行为。不会伪造 `chargeSpeed`、`POWER_MAX`、`maxWattage` 或 `miuiChargerVerified`。
 
@@ -48,7 +51,7 @@ BIN=/data/adb/modules/YAFreePPS/bin/yafreepps
 ## 安装与迁移
 
 1. **先卸载原版 FreePPS 并重启**。两者不能同时运行。安装脚本检测到原模块目录时会拒绝安装，以免旧服务继续预写。旧版独立 App 不再是本项目的控制入口，可自行卸载。
-2. 将构建生成的 `YAFreePPS-v0.1.0.zip` 通过支持模块安装的 root 管理器安装并重启。
+2. 将构建生成的 `YAFreePPS-v0.2.0.zip` 通过支持模块安装的 root 管理器安装并重启。
 3. 在 WebUI 检查“服务运行中”，或使用 `status`。若服务未运行，查看 `daemon.log` 和 `logcat -s YAFreePPS`。
 4. 默认 `free=1`。升级保留原有 `free` 和 `config`。安装和服务启动均不无条件写验证位。
 
@@ -100,17 +103,17 @@ python3 build_android.py --ndk /absolute/path/to/android-ndk
 
 GitHub Actions 使用固定 NDK r27d，提供以下构建和发布入口：
 
-- 向 `main` 提交或发起 PR：测试、arm64 构建、上传模块 ZIP、精确提交的源码 ZIP 和 SHA256SUMS；不发布 Release。
+- 普通 `main` 提交或 PR：测试、arm64 构建、上传模块 ZIP、精确提交的源码 ZIP 和 SHA256SUMS。PR 不发布；`main` 的 Cargo 版本相对父提交发生变化时，构建成功后自动发布相应版本。
 - 推送 `v*` 标签：标签必须与 Cargo.toml、module.prop 版本一致；全部检查成功后自动发布 GitHub Release。
 - Actions → Build and release → Run workflow：默认仅构建；勾选 `publish_release` 并填写匹配的 `release_tag` 可手动发布，也可由工作流创建标签。
-- `0.x` 或包含预发布后缀的版本标记为 Pre-release，不设为 Latest。已有 Release 不会被重跑覆盖。
+- `0.x` 或包含预发布后缀的版本标记为 Pre-release，不设为 Latest。已有 Release 可安全重跑：补传缺失附件，下载并校验同名附件；一致则跳过，不一致则报错，不覆盖。未完成的草稿会在所有上传成功后发布。
 - 构建任务仅有仓库读取权限；发布任务单独获得 `contents: write`，使用 GitHub 自带令牌，不需要自建 PAT。PR 不触发发布。
 
-首次发布示例（版本已为 0.1.0）：
+首次发布示例（版本已为 0.2.0）：
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 后续发布先同步 Cargo.toml、Cargo.lock 和 module.prop 的版本，并递增 versionCode，再推送对应标签。源码 ZIP 通过 `git archive HEAD` 生成，校验和覆盖模块与源码包。
@@ -121,6 +124,7 @@ git push origin v0.1.0
 
 | 路径 | 职责 |
 | --- | --- |
+| `src/audit.rs` | 会话写入凭据、事件快照、旧进程记录隔离 |
 | `src/policy.rs` | 纯会话状态机与协议策略 |
 | `src/reactor.rs` | netlink、目录 inotify、signalfd、单次分类超时与单实例锁 |
 | `src/device.rs` | sysfs 快照、唯一写 1 入口、显式空闲还原、JSON 状态 |

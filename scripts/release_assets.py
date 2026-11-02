@@ -20,6 +20,7 @@ def main():
     (output / 'RELEASE_NOTES.md').write_text(f'''YAFreePPS v{version}
 
 - arm64 Android 9+ module, WebUI + Action controls.
+- Session diagnostics show identification, decisions and actual write receipts.
 - No standalone App, APK downloader, or broadcast/UI forgery.
 - Xiaomi SVID 2717 is kernel-managed; public PPS uses delayed SVID classification.
 - MTK is unsupported. Actual PPS power gains and phone compatibility remain unverified.

@@ -143,7 +143,17 @@ impl Device {
             "0000" if s.real_type == "PD_PPS" => "Public PPS (candidate)",
             _ => "Unknown / unsupported",
         };
+        let report = crate::audit::current(self, running);
+        let matches_current = report.as_ref().is_some_and(|r| r.observed == s);
         let fields = BTreeMap::from([
+            ("version", json_string(env!("CARGO_PKG_VERSION"))),
+            (
+                "session",
+                report.map_or("null".into(), |r| {
+                    serde_json::to_string(&r).unwrap_or_else(|_| "null".into())
+                }),
+            ),
+            ("session_matches_current", matches_current.to_string()),
             ("enabled", s.enabled.to_string()),
             ("running", running.to_string()),
             ("status", json_string(&s.status)),

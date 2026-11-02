@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest.mock import patch
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('release_metadata', ROOT / 'scripts/release_metadata.py')
@@ -18,3 +20,16 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaises(ValueError): module.metadata(tag)
     def test_ci_build_is_not_a_release(self):
         self.assertEqual(module.metadata()['release_tag'], '')
+
+    def test_version_change_requests_release(self):
+        current = module.metadata()['version']
+        old = '[package]\nversion = "0.1.0"\n'
+        result = subprocess.CompletedProcess([], 0, old, '')
+        with patch.object(module.subprocess, 'run', return_value=result):
+            self.assertEqual(module.changed_version_tag(), f'v{current}')
+    def test_unchanged_version_does_not_publish(self):
+        current = module.metadata()['version']
+        old = f'[package]\nversion = "{current}"\n'
+        result = subprocess.CompletedProcess([], 0, old, '')
+        with patch.object(module.subprocess, 'run', return_value=result):
+            self.assertEqual(module.changed_version_tag(), '')
