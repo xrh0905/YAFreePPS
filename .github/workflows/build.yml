@@ -1,7 +1,7 @@
 name: Build and release
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/v*']
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -52,6 +52,8 @@ jobs:
           tag=''
           if [ "$EVENT_NAME" = push ] && [ "$REF_TYPE" = tag ]; then
             tag="$REF_NAME"
+          elif [ "$EVENT_NAME" = push ] && [[ "$REF_NAME" == release/v* ]]; then
+            tag="${REF_NAME#release/}"
           elif [ "$EVENT_NAME" = workflow_dispatch ] && [ "$PUBLISH_RELEASE" = true ]; then
             [ -n "$MANUAL_TAG" ] || { echo 'release_tag is required'; exit 1; }
             tag="$MANUAL_TAG"

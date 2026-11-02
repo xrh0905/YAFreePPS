@@ -29,7 +29,9 @@ def publish(repo, tag, target, output):
     info = metadata(tag)
     if not tag:
         raise ValueError('release tag is required')
-    commit = api(f'repos/{repo}/commits/{tag}', missing_ok=True)
+    # The commit endpoint returns 422 for an unknown tag; git/ref returns 404.
+    ref = api(f'repos/{repo}/git/ref/tags/{tag}', missing_ok=True)
+    commit = api(f'repos/{repo}/commits/{tag}') if ref is not None else None
     if commit is not None and commit['sha'] != target:
         raise ValueError('Tag points at another commit; refusing mismatched binaries')
     files = [output / f'YAFreePPS-{tag}.zip', output / f'YAFreePPS-{tag}-source.zip', output / 'SHA256SUMS']

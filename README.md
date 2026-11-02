@@ -104,6 +104,7 @@ python3 build_android.py --ndk /absolute/path/to/android-ndk
 GitHub Actions 使用固定 NDK r27d，提供以下构建和发布入口：
 
 - 普通 `main` 提交或 PR：测试、arm64 构建、上传模块 ZIP、精确提交的源码 ZIP 和 SHA256SUMS。PR 不发布；`main` 的 Cargo 版本相对父提交发生变化时，构建成功后自动发布相应版本。
+- 推送 `release/v*` 分支也可发起或重试该版本的发布，分支版本必须与 Cargo.toml 一致；首次发布会创建标签。
 - 推送 `v*` 标签：标签必须与 Cargo.toml、module.prop 版本一致；全部检查成功后自动发布 GitHub Release。
 - Actions → Build and release → Run workflow：默认仅构建；勾选 `publish_release` 并填写匹配的 `release_tag` 可手动发布，也可由工作流创建标签。
 - `0.x` 或包含预发布后缀的版本标记为 Pre-release，不设为 Latest。已有 Release 可安全重跑：补传缺失附件，下载并校验同名附件；一致则跳过，不一致则报错，不覆盖。未完成的草稿会在所有上传成功后发布。

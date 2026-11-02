@@ -22,7 +22,7 @@ class PublishTests(unittest.TestCase):
         self.release = {'draft': False, 'assets': []}
     def tearDown(self): self.temp.cleanup()
     def api(self, path, missing_ok=False):
-        return {'sha': 'tested'} if '/commits/' in path else self.release
+        return {'sha': 'tested'} if '/commits/' in path or '/git/ref/tags/' in path else self.release
     def gh(self, *args, **kwargs):
         self.calls.append(args)
         if args[:2] == ('release', 'download'):
@@ -74,3 +74,15 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(self.calls[0][:2], ('release', 'create'))
         self.assertIn('--draft', self.calls[0])
         self.assertEqual(self.calls[-1][:2], ('release', 'edit'))
+
+    def test_missing_tag_uses_ref_endpoint_not_commit_lookup(self):
+        self.release['draft'] = True
+        paths = []
+        def lookup(path, missing_ok=False):
+            paths.append(path)
+            if '/git/ref/tags/' in path: return None
+            if '/commits/' in path: raise AssertionError('missing tag must not use commit endpoint')
+            return self.release
+        with patch.object(module, 'api', side_effect=lookup), patch.object(module, 'gh', side_effect=self.gh):
+            module.publish('owner/repo', self.tag, 'tested', self.output)
+        self.assertIn('/git/ref/tags/', paths[0])
