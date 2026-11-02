@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="light dark"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'"><title>YAFreePPS</title><link rel="stylesheet" href="style.css"></head>
+<body><main>
+<header><span class="brand">YA / FREEPPS</span><span class="tag">实验性 · 0.1.0</span></header>
+<h1>让协议各行其道。</h1><p class="intro">小米 MIPPS 交给内核。公版 PPS 在 SVID 稳定后尝试解锁。</p>
+<section class="control"><div><h2 id="mode">读取状态中</h2><p id="health" role="status">正在连接模块…</p></div><button id="toggle" disabled>启用</button></section>
+<section><h2>当前连接 <button id="refresh" class="quiet">刷新</button></h2><div id="values" class="grid"></div><p class="note">APDO 是适配器上报能力，不是实时充电功率。本项目不伪造动画、充电速度或功率数字。</p></section>
+<section><h2>握手等待</h2><p class="note">仅在新会话或设置变化时等待；未知 SVID 不写入。默认值源于单机报告，不能保证适配所有机型。</p><form id="settings"><label>插入保护时间（ms）<input id="settle" type="number" min="2000" max="30000" step="100" required></label><label>SVID 稳定时间（ms）<input id="stable" type="number" min="1000" max="30000" step="100" required></label><button type="submit" id="save" class="secondary" disabled>保存设置</button></form></section>
+<p class="foot">暂停时若仍连接充电器，不写入 0；拔出后由内核清零。原版 FreePPS 必须先移除并重启。需要支持 KernelSU WebUI 桥接的管理器；无桥接时可使用模块 Action。</p>
+<p id="message" role="alert"></p></main><script src="app.js"></script></body></html>

@@ -1,0 +1,6 @@
+id=YAFreePPS
+name=Yet Another FreePPS
+version=v0.1.0
+versionCode=1
+author=YAFreePPS contributors; based on Seyud/FreePPS
+description=按 SVID 隔离 MIPPS 的实验性公版 PPS 解锁。WebUI + Action，无独立 App、无广播伪造。
