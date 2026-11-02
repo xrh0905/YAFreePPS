@@ -58,8 +58,11 @@ jobs:
           python3 scripts/release_metadata.py --tag "$tag"
       - name: Install pinned Android NDK r27d
         run: |
-          sdkmanager 'ndk;27.3.13750724'
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.3.13750724" >> "$GITHUB_ENV"
+          archive="$RUNNER_TEMP/android-ndk-r27d-linux.zip"
+          curl --fail --location --retry 3 https://dl.google.com/android/repository/android-ndk-r27d-linux.zip --output "$archive"
+          echo "601246087a682d1944e1e16dd85bc6e49560fe8b6d61255be2829178c8ed15d9  $archive" | sha256sum --check -
+          unzip -q "$archive" -d "$RUNNER_TEMP/yafreepps-ndk"
+          echo "ANDROID_NDK_HOME=$RUNNER_TEMP/yafreepps-ndk/android-ndk-r27d" >> "$GITHUB_ENV"
       - name: CLI, packaging and WebUI tests
         run: |
           cargo build --locked
@@ -117,3 +120,4 @@ jobs:
           rm -f "$error_file"
           # Existing releases are never overwritten by a rerun.
           gh release create "$RELEASE_TAG" "${args[@]}" output/YAFreePPS-*.zip output/SHA256SUMS
+
