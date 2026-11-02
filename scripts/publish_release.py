@@ -85,10 +85,20 @@ def publish(repo, tag, target, output):
     for file in files:
         if file.name not in assets: upload(release, file)
     if release['draft']:
-        fields = {'draft': False, 'prerelease': info['prerelease'] == 'true'}
+        fields = {'tag_name': tag, 'target_commitish': target, 'draft': False, 'prerelease': info['prerelease'] == 'true'}
         if info['prerelease'] == 'true': fields['make_latest'] = 'false'
-        api(release_path, method='PATCH', fields=fields)
+        published = api(release_path, method='PATCH', fields=fields)
+        if published['tag_name'] != tag or published['draft']:
+            raise RuntimeError('GitHub did not publish the requested tag')
     print(f'https://github.com/{repo}/releases/tag/{tag}')
+
+def retire_superseded(repo, release_id, expected_target, tag):
+    old = api(f'repos/{repo}/releases/{release_id}', missing_ok=True)
+    if old is None or old['draft']: return
+    if not old['tag_name'].startswith('untagged-') or old['name'] != f'YAFreePPS {tag}' or old['target_commitish'] != expected_target:
+        raise ValueError('superseded release identity does not match; refusing to change it')
+    # Reversible cleanup of the accidental release created during v0.2.0 validation.
+    api(f'repos/{repo}/releases/{release_id}', method='PATCH', fields={'draft': True})
 
 def main():
     repo = os.environ['GH_REPO']

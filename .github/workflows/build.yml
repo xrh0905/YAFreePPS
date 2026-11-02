@@ -117,3 +117,15 @@ jobs:
           TARGET_SHA: ${{ github.sha }}
         run: |
           python3 scripts/publish_release.py
+      - name: Withdraw superseded accidental v0.2.0 release
+        if: github.repository == 'xrh0905/YAFreePPS' && needs.android.outputs.release_tag == 'v0.2.0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import os, sys
+          sys.path.insert(0, 'scripts')
+          from publish_release import retire_superseded
+          retire_superseded(os.environ['GH_REPO'], 431195044, '8576b806809f60d009b86b26b3f5de6b2a35cde7', 'v0.2.0')
+          PY

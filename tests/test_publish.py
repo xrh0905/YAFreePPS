@@ -21,7 +21,7 @@ class PublishTests(unittest.TestCase):
     def api(self, path, missing_ok=False, method='GET', fields=None, paginate=False):
         self.calls.append((method, path, fields))
         if method == 'POST': return self.release
-        if method == 'PATCH': return self.release
+        if method == 'PATCH': return {**self.release, **(fields or {})}
         if '/git/ref/tags/' in path: return None if self.missing_tag else {'object': {}}
         if '/commits/' in path:
             if self.missing_tag: raise AssertionError('do not look up a missing commit')
@@ -46,7 +46,7 @@ class PublishTests(unittest.TestCase):
         self.release['draft'] = True; self.hidden_draft = True; self.missing_tag = True
         self.assertEqual(self.execute(), 3)
         self.assertFalse(any(c[0] == 'POST' for c in self.calls))
-        self.assertEqual(self.calls[-1], ('PATCH', 'repos/owner/repo/releases/7', {'draft': False, 'prerelease': True, 'make_latest': 'false'}))
+        self.assertEqual(self.calls[-1], ('PATCH', 'repos/owner/repo/releases/7', {'tag_name': self.tag, 'target_commitish': 'tested', 'draft': False, 'prerelease': True, 'make_latest': 'false'}))
     def test_empty_draft_can_follow_corrected_commit_before_upload(self):
         self.release['draft'] = True; self.missing_tag = True; self.release['target_commitish'] = 'old'
         self.execute()
@@ -72,3 +72,13 @@ class PublishTests(unittest.TestCase):
     def test_upload_host_is_validated(self):
         with self.assertRaisesRegex(ValueError, 'host'):
             module.upload({'upload_url': 'https://example.org/assets'}, self.output / self.files[0])
+
+    def test_publication_must_explicitly_include_tag_and_target(self):
+        self.release['draft'] = True
+        self.execute()
+        self.assertEqual(self.calls[-1][2]['tag_name'], self.tag)
+        self.assertEqual(self.calls[-1][2]['target_commitish'], 'tested')
+    def test_superseded_cleanup_rejects_any_unrelated_release(self):
+        with patch.object(module, 'api', return_value=self.release) as api:
+            with self.assertRaises(ValueError): module.retire_superseded('owner/repo', 7, 'tested', self.tag)
+            self.assertEqual(api.call_count, 1)
